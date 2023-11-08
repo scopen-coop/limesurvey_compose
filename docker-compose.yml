@@ -1,0 +1,101 @@
+version: '3.8'
+
+networks:
+    limesurvey-internal-pod:
+        internal: true
+    limesurvey-external-pod:
+        internal: false
+
+volumes:
+    mariadb-limesurvey:
+        external: true
+
+services:
+    limesurvey-mariadb:
+        image: mariadb:10.8
+        command:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+            - --max_allowed_packet=512M
+        container_name: limesurvey-mariadb
+        environment:
+            MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+            MYSQL_DATABASE: limesurvey
+        ports:
+            - "3306:3306"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
+        volumes:
+            - mariadb-limesurvey:/var/lib/mysql
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+
+    limesurvey_phpmyadmin:
+        image: phpmyadmin/phpmyadmin
+        container_name: limesurvey_phpmyadmin
+        environment:
+            PMA_HOST: limesurvey-mariadb
+        depends_on:
+            - limesurvey-mariadb
+        ports:
+            - "8080:80"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
+
+    limesurvey-web-nginx:
+        image: nginx:1.18-alpine
+        container_name: limesurvey_nginx
+        volumes:
+            - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+            - ./certs:/etc/nginx/ssl
+            - ../LimeSurvey:/var/www/html:rw
+            - ./nginx/log/:/var/log/nginx/
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+        ports:
+            - "80:80"
+            - "443:443"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
+        depends_on:
+            - limesurvey-mariadb
+            - greenmail-limesurvey
+
+    limesurvey-web-php:
+        build: .
+        container_name: limesurvey_web
+        volumes:
+            - ../LimeSurvey:/var/www/html:rw
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+        ports:
+            - "6000:9003"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
+        depends_on:
+            - limesurvey-web-nginx
+
+    greenmail-limesurvey:
+        image: greenmail/standalone
+        ports:
+          - "6081:8080"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
+
+    roudcube-limesurvey:
+        image: roundcube/roundcubemail
+        environment:
+            ROUNDCUBEMAIL_DEFAULT_HOST: greenmail-limesurvey
+            ROUNDCUBEMAIL_DEFAULT_PORT: 3143
+            ROUNDCUBEMAIL_SMTP_SERVER: greenmail-limesurvey
+            ROUNDCUBEMAIL_SMTP_PORT: 3025
+        ports:
+            - "6082:80"
+        networks:
+            - limesurvey-internal-pod
+            - limesurvey-external-pod
